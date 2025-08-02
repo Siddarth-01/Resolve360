@@ -42,16 +42,10 @@ const LoginPage = () => {
             Back to Home
           </button>
 
-          <div className="inline-flex items-center justify-center w-16 h-16 bg-gradient-to-r from-blue-500 to-blue-600 rounded-full mb-4 text-white">
-            <LogIn className="w-8 h-8" />
-          </div>
+         
 
-          <h2 className="text-3xl font-bold text-gray-900 mb-2">
-            Welcome to Resolve360
-          </h2>
-          <p className="text-gray-600">
-            Sign in with your Google account to continue
-          </p>
+         
+         
         </div>
 
         {/* Google Sign In Button */}
@@ -102,12 +96,7 @@ const LoginPage = () => {
             )}
           </button>
 
-          <div className="mt-4 text-center">
-            <p className="text-xs text-gray-500">
-              By signing in, you agree to our Terms of Service and Privacy
-              Policy
-            </p>
-          </div>
+          
         </div>
 
         {/* Role Information */}

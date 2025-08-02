@@ -4,6 +4,7 @@
   "private": true,
   "dependencies": {
     "@cloudinary/url-gen": "^1.14.0",
+    "@google/generative-ai": "^0.24.1",
     "@tensorflow/tfjs": "^4.22.0",
     "@testing-library/dom": "^10.4.1",
     "@testing-library/jest-dom": "^6.6.4",

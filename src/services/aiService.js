@@ -2,9 +2,64 @@ import axios from "axios";
 import * as tf from "@tensorflow/tfjs";
 import { cloudinaryConfig } from "../cloudinary/config";
 
-// Teachable Machine model URL
+// Teachable Machine model URL (may redirect)
 const TEACHABLE_MACHINE_MODEL_URL =
   "https://teachablemachine.withgoogle.com/models/jkm8RlkVB/";
+
+// Alternative: If the main model fails, we can use a more robust classification system
+const BACKUP_CLASSIFICATION_RULES = {
+  // Keywords that strongly indicate specific categories
+  strongIndicators: {
+    Plumbing: [
+      "water",
+      "leak",
+      "pipe",
+      "drain",
+      "faucet",
+      "toilet",
+      "sink",
+      "shower",
+      "plumb",
+    ],
+    Electrical: [
+      "wire",
+      "outlet",
+      "switch",
+      "power",
+      "electric",
+      "light",
+      "circuit",
+      "breaker",
+    ],
+    HVAC: [
+      "air",
+      "ac",
+      "heating",
+      "cooling",
+      "hvac",
+      "temperature",
+      "thermostat",
+      "vent",
+    ],
+    Civil: [
+      "wall",
+      "ceiling",
+      "floor",
+      "crack",
+      "structure",
+      "concrete",
+      "paint",
+      "damage",
+    ],
+  },
+  // Image-based heuristics (simple color/content analysis)
+  imageHeuristics: {
+    // These would be based on dominant colors or simple features
+    hasWater: ["blue", "wet", "stain"],
+    hasElectrical: ["wire", "socket", "panel"],
+    hasStructural: ["crack", "damage", "wall"],
+  },
+};
 
 // Issue categories based on the Teachable Machine model
 const ISSUE_CATEGORIES = {
@@ -99,6 +154,130 @@ const CONTRACTOR_ASSIGNMENTS = {
 };
 
 export class AIService {
+  // Check if TensorFlow.js is properly loaded
+  static isTensorFlowAvailable() {
+    return typeof tf !== "undefined" && tf.loadLayersModel;
+  }
+
+  // Test if the Teachable Machine model is accessible
+  static async testModelAvailability() {
+    try {
+      if (!this.isTensorFlowAvailable()) {
+        console.error("TensorFlow.js is not available");
+        return false;
+      }
+
+      const modelURL = TEACHABLE_MACHINE_MODEL_URL + "model.json";
+      const response = await fetch(modelURL);
+      const isAvailable = response.ok;
+      console.log(
+        `Teachable Machine model availability: ${isAvailable} (status: ${response.status})`
+      );
+      return isAvailable;
+    } catch (error) {
+      console.error("Model availability test failed:", error);
+      return false;
+    }
+  }
+
+  // Simple image analysis as backup (basic heuristics)
+  static async analyzeImageHeuristics(imageUrl) {
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.crossOrigin = "anonymous";
+
+      img.onload = () => {
+        try {
+          // Create a canvas to analyze the image
+          const canvas = document.createElement("canvas");
+          const ctx = canvas.getContext("2d");
+          canvas.width = img.width;
+          canvas.height = img.height;
+          ctx.drawImage(img, 0, 0);
+
+          // Get image data for basic analysis
+          const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+          const data = imageData.data;
+
+          // Simple color analysis
+          let redSum = 0,
+            greenSum = 0,
+            blueSum = 0;
+          let brightPixels = 0,
+            darkPixels = 0;
+
+          for (let i = 0; i < data.length; i += 4) {
+            redSum += data[i];
+            greenSum += data[i + 1];
+            blueSum += data[i + 2];
+
+            const brightness = (data[i] + data[i + 1] + data[i + 2]) / 3;
+            if (brightness > 128) brightPixels++;
+            else darkPixels++;
+          }
+
+          const pixelCount = data.length / 4;
+          const avgRed = redSum / pixelCount;
+          const avgGreen = greenSum / pixelCount;
+          const avgBlue = blueSum / pixelCount;
+
+          // Basic heuristics
+          let suggestedCategory = "Common Area Maintenance/Housekeeping";
+          let confidence = 0.3;
+
+          // Blue-dominant images might be plumbing (water)
+          if (avgBlue > avgRed && avgBlue > avgGreen && avgBlue > 100) {
+            suggestedCategory = "Plumbing";
+            confidence = 0.4;
+          }
+          // Dark images might be electrical
+          else if (darkPixels > brightPixels * 1.5) {
+            suggestedCategory = "Electrical";
+            confidence = 0.35;
+          }
+          // Brownish/earthy colors might be civil/structural
+          else if (
+            avgRed > avgBlue &&
+            avgGreen > avgBlue &&
+            Math.abs(avgRed - avgGreen) < 30
+          ) {
+            suggestedCategory = "Civil";
+            confidence = 0.4;
+          }
+
+          resolve({
+            category: suggestedCategory,
+            confidence: confidence,
+            colorAnalysis: {
+              avgRed,
+              avgGreen,
+              avgBlue,
+              brightPixels,
+              darkPixels,
+            },
+          });
+        } catch (error) {
+          console.error("Image heuristics analysis failed:", error);
+          resolve({
+            category: "Common Area Maintenance/Housekeeping",
+            confidence: 0.3,
+            error: error.message,
+          });
+        }
+      };
+
+      img.onerror = () => {
+        resolve({
+          category: "Common Area Maintenance/Housekeeping",
+          confidence: 0.3,
+          error: "Failed to load image for analysis",
+        });
+      };
+
+      img.src = imageUrl;
+    });
+  }
+
   static async classifyImage(imageFile, description = "") {
     try {
       // Try to upload image to Cloudinary
@@ -156,122 +335,178 @@ export class AIService {
   static async classifyWithTeachableMachine(imageUrl, description) {
     try {
       console.log(
-        "Using enhanced text-based classification with image analysis simulation"
+        "Loading Teachable Machine model for image classification..."
       );
 
-      // Simulate model processing time
-      await new Promise((resolve) => setTimeout(resolve, 1500));
-
-      // Use text-based classification as primary method
-      const textClassification = await this.analyzeDescription(description);
-
-      // Simulate image analysis by adding some randomness based on image URL
-      const imageHash = imageUrl.length; // Simple hash based on URL length
-      const randomFactor = (imageHash % 100) / 1000; // Small random factor
-      const simulatedConfidence = Math.min(
-        0.95,
-        textClassification.confidence + randomFactor
-      );
-
-      // Simulate different categories based on image characteristics
-      let finalCategory = textClassification.category;
-      let finalConfidence = simulatedConfidence;
-
-      // If no description provided, use a default category
-      if (!description.trim()) {
-        finalCategory = "Common Area Maintenance/Housekeeping";
-        finalConfidence = 0.6;
+      // Test model availability first
+      const modelAvailable = await this.testModelAvailability();
+      if (!modelAvailable) {
+        console.warn(
+          "Teachable Machine model not available, using text analysis fallback"
+        );
+        return await this.analyzeDescription(description);
       }
 
-      console.log("Classification completed:", {
-        category: finalCategory,
-        confidence: finalConfidence,
-        contractor: textClassification.contractor,
-      });
+      const modelURL = TEACHABLE_MACHINE_MODEL_URL + "model.json";
 
-      return {
-        category: finalCategory,
-        confidence: finalConfidence,
-        contractor: textClassification.contractor,
-        priority: textClassification.priority,
-        description: textClassification.description,
-      };
-
-      /* 
-      // Original Teachable Machine implementation (commented out for reliability)
-      const modelURL = TEACHABLE_MACHINE_MODEL_URL + 'model.json';
-      
       // Create an image element to process
       const img = new Image();
-      img.crossOrigin = 'anonymous';
-      
+      img.crossOrigin = "anonymous";
+
       return new Promise((resolve, reject) => {
         img.onload = async () => {
           try {
-            // Load the model
-            const model = await tf.loadLayersModel(modelURL);
-            
+            console.log("Image loaded, loading TensorFlow model...");
+
+            // Load the model with retry logic
+            let model;
+            let attempts = 0;
+            const maxAttempts = 3;
+
+            while (attempts < maxAttempts) {
+              try {
+                attempts++;
+                console.log(`Model loading attempt ${attempts}/${maxAttempts}`);
+                model = await tf.loadLayersModel(modelURL);
+                console.log("Model loaded successfully");
+                break;
+              } catch (modelError) {
+                console.error(
+                  `Model loading attempt ${attempts} failed:`,
+                  modelError
+                );
+                if (attempts === maxAttempts) {
+                  throw modelError;
+                }
+                // Wait before retrying
+                await new Promise((resolve) => setTimeout(resolve, 1000));
+              }
+            }
+
             // Preprocess the image
             const tensor = tf.browser
               .fromPixels(img)
-              .resizeNearestNeighbor([224, 224]) // Standard input size
+              .resizeNearestNeighbor([224, 224]) // Standard input size for Teachable Machine
               .toFloat()
               .div(255.0)
-              .expandDims();
-            
+              .expandDims(0); // Add batch dimension
+
+            console.log("Image preprocessed, making prediction...");
+
             // Make prediction
             const predictions = await model.predict(tensor).data();
-            
-            // Map predictions to categories
+            console.log("Raw predictions:", predictions);
+
+            // Map predictions to categories (must match the exact order from Teachable Machine)
+            // Note: The order here should match the training data labels in Teachable Machine
             const categories = [
-              'Plumbing',
-              'Electrical', 
-              'Civil',
-              'Common Area Maintenance/Housekeeping',
-              'HVAC'
+              "Plumbing",
+              "Electrical",
+              "Civil",
+              "Common Area Maintenance/Housekeeping",
+              "HVAC",
             ];
-            
+
+            // Log all predictions for debugging
+            console.log(
+              "All predictions:",
+              categories.map(
+                (cat, idx) => `${cat}: ${predictions[idx]?.toFixed(3) || "N/A"}`
+              )
+            );
+
             const maxIndex = predictions.indexOf(Math.max(...predictions));
-            const selectedCategory = categories[maxIndex] || 'Common Area Maintenance/Housekeeping';
-            const confidence = predictions[maxIndex];
-            
+            const selectedCategory =
+              categories[maxIndex] || "Common Area Maintenance/Housekeeping";
+            const confidence = predictions[maxIndex] || 0;
+
+            console.log(
+              `Predicted category: ${selectedCategory} with confidence: ${confidence.toFixed(
+                3
+              )}`
+            );
+
+            // Validate prediction
+            if (confidence < 0.1) {
+              console.warn(
+                "Very low confidence prediction, model might not be working correctly"
+              );
+            }
+
             // Clean up tensors
             tensor.dispose();
             model.dispose();
-            
-            // Combine with text description analysis for better accuracy
-            const textClassification = await this.analyzeDescription(description);
-            
-            // If confidence is low, use text analysis as fallback
-            const finalCategory = confidence > 0.5 ? selectedCategory : textClassification.category;
-            const finalConfidence = confidence > 0.5 ? confidence : Math.max(confidence, textClassification.confidence);
-            
+
+            // Combine with text description analysis if confidence is low
+            const textClassification = await this.analyzeDescription(
+              description
+            );
+
+            // Use ML prediction if confidence is reasonable, otherwise fallback to text analysis
+            let finalCategory, finalConfidence;
+            if (confidence > 0.2) {
+              // Lowered threshold for more ML usage
+              finalCategory = selectedCategory;
+              finalConfidence = confidence;
+              console.log("Using ML prediction");
+            } else {
+              console.log("Low confidence, using text analysis fallback");
+              finalCategory = textClassification.category;
+              finalConfidence = Math.max(
+                confidence,
+                textClassification.confidence
+              );
+            }
+
+            // If text analysis suggests a different category with high confidence, consider it
+            if (textClassification.confidence > 0.7 && confidence < 0.5) {
+              console.log(
+                "Text analysis has higher confidence, using text prediction"
+              );
+              finalCategory = textClassification.category;
+              finalConfidence = textClassification.confidence;
+            }
+
             // Assign contractor
-            const contractors = CONTRACTOR_ASSIGNMENTS[finalCategory] || ['general@resolve360.com'];
-            const assignedContractor = contractors[Math.floor(Math.random() * contractors.length)];
-            
+            const contractors = CONTRACTOR_ASSIGNMENTS[finalCategory] || [
+              "general@resolve360.com",
+            ];
+            const assignedContractor =
+              contractors[Math.floor(Math.random() * contractors.length)];
+
             resolve({
               category: finalCategory,
               confidence: finalConfidence,
               contractor: assignedContractor,
-              priority: ISSUE_CATEGORIES[finalCategory]?.priority || 'medium',
-              description: ISSUE_CATEGORIES[finalCategory]?.description || 'General maintenance issue'
+              priority: ISSUE_CATEGORIES[finalCategory]?.priority || "medium",
+              description:
+                ISSUE_CATEGORIES[finalCategory]?.description ||
+                "General maintenance issue",
             });
           } catch (error) {
-            console.error('Model prediction error:', error);
+            console.error("Model prediction error:", error);
             // Fallback to description-based classification
             const fallbackResult = await this.analyzeDescription(description);
             resolve(fallbackResult);
           }
         };
-        
-        img.onerror = () => {
-          reject(new Error('Failed to load image for classification'));
+
+        img.onerror = (error) => {
+          console.error("Failed to load image for classification:", error);
+          // Fallback to description-based classification
+          this.analyzeDescription(description).then(resolve).catch(reject);
         };
-        
+
+        // Set a timeout for image loading
+        setTimeout(() => {
+          if (!img.complete) {
+            console.warn("Image loading timeout, using text analysis fallback");
+            this.analyzeDescription(description).then(resolve).catch(reject);
+          }
+        }, 10000); // 10 second timeout
+
         img.src = imageUrl;
       });
-      */
     } catch (error) {
       console.error("Teachable Machine classification error:", error);
       // Fallback to description-based classification
@@ -280,10 +515,50 @@ export class AIService {
   }
 
   static async analyzeDescription(description) {
-    // Analyze text description for classification
+    // Enhanced text analysis with stronger classification rules
     const combinedText = description.toLowerCase();
 
-    // Calculate scores for each category based on keywords
+    // First, check for strong indicators
+    let bestMatch = null;
+    let maxScore = 0;
+
+    for (const [category, keywords] of Object.entries(
+      BACKUP_CLASSIFICATION_RULES.strongIndicators
+    )) {
+      let score = 0;
+      for (const keyword of keywords) {
+        if (combinedText.includes(keyword)) {
+          score += 2; // Strong indicators get double weight
+        }
+      }
+
+      if (score > maxScore) {
+        maxScore = score;
+        bestMatch = category;
+      }
+    }
+
+    // If strong indicators found, use them
+    if (bestMatch && maxScore > 0) {
+      const confidence = Math.min(0.9, 0.6 + maxScore * 0.1);
+      const contractors = CONTRACTOR_ASSIGNMENTS[bestMatch] || [
+        "general@resolve360.com",
+      ];
+      const assignedContractor =
+        contractors[Math.floor(Math.random() * contractors.length)];
+
+      return {
+        category: bestMatch,
+        confidence: confidence,
+        contractor: assignedContractor,
+        priority: ISSUE_CATEGORIES[bestMatch]?.priority || "medium",
+        description:
+          ISSUE_CATEGORIES[bestMatch]?.description ||
+          "General maintenance issue",
+      };
+    }
+
+    // Fallback to original keyword-based analysis
     const scores = {};
     Object.entries(ISSUE_CATEGORIES).forEach(([category, config]) => {
       let score = 0;
@@ -296,9 +571,9 @@ export class AIService {
     });
 
     // Find the category with highest score
-    const maxScore = Math.max(...Object.values(scores));
+    const finalMaxScore = Math.max(...Object.values(scores));
     const categories = Object.keys(scores).filter(
-      (cat) => scores[cat] === maxScore
+      (cat) => scores[cat] === finalMaxScore
     );
 
     // If no clear match, default to Common Area Maintenance
@@ -308,7 +583,8 @@ export class AIService {
         : "Common Area Maintenance/Housekeeping";
 
     // Calculate confidence based on score
-    const confidence = Math.min(0.85, 0.5 + maxScore * 0.1);
+    const confidence =
+      finalMaxScore > 0 ? Math.min(0.8, 0.4 + finalMaxScore * 0.15) : 0.3;
 
     // Assign contractor
     const contractors = CONTRACTOR_ASSIGNMENTS[selectedCategory] || [
@@ -343,5 +619,42 @@ export class AIService {
   // Method to get the Teachable Machine model URL for reference
   static getModelURL() {
     return TEACHABLE_MACHINE_MODEL_URL;
+  }
+
+  // Debug method to get detailed classification info
+  static async getDetailedClassification(imageFile, description = "") {
+    try {
+      const modelAvailable = await this.testModelAvailability();
+      const textClassification = await this.analyzeDescription(description);
+
+      let mlClassification = null;
+      if (modelAvailable) {
+        try {
+          // Try to get ML classification
+          const result = await this.classifyImage(imageFile, description);
+          mlClassification = {
+            category: result.category,
+            confidence: result.confidence,
+          };
+        } catch (error) {
+          console.error("ML classification failed:", error);
+        }
+      }
+
+      return {
+        modelAvailable,
+        textClassification,
+        mlClassification,
+        description: description,
+      };
+    } catch (error) {
+      console.error("Detailed classification error:", error);
+      return {
+        error: error.message,
+        modelAvailable: false,
+        textClassification: null,
+        mlClassification: null,
+      };
+    }
   }
 }

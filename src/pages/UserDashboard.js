@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import { useAuth } from "../contexts/AuthContext";
@@ -17,6 +17,7 @@ import {
   FileText,
   Zap,
   RefreshCw,
+  Video,
 } from "lucide-react";
 import toast from "react-hot-toast";
 
@@ -32,6 +33,10 @@ const UserDashboard = () => {
   const [classifying, setClassifying] = useState(false);
   const [classification, setClassification] = useState(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [showWebcam, setShowWebcam] = useState(false);
+  const [webcamStream, setWebcamStream] = useState(null);
+  const webcamRef = useRef(null);
+  const canvasRef = useRef(null);
 
   useEffect(() => {
     loadUserIssues();
@@ -84,6 +89,105 @@ const UserDashboard = () => {
     }
   };
 
+  const startWebcam = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          width: { ideal: 1280 },
+          height: { ideal: 720 },
+          facingMode: "environment", // Use back camera on mobile if available
+        },
+      });
+      setWebcamStream(stream);
+      setShowWebcam(true);
+
+      // Wait for the video element to be available
+      setTimeout(() => {
+        if (webcamRef.current) {
+          webcamRef.current.srcObject = stream;
+        }
+      }, 100);
+    } catch (error) {
+      console.error("Error accessing webcam:", error);
+      toast.error("Unable to access camera. Please check permissions.");
+    }
+  };
+
+  const stopWebcam = () => {
+    if (webcamStream) {
+      webcamStream.getTracks().forEach((track) => track.stop());
+      setWebcamStream(null);
+    }
+    setShowWebcam(false);
+  };
+
+  const capturePhoto = () => {
+    if (webcamRef.current && canvasRef.current) {
+      const video = webcamRef.current;
+      const canvas = canvasRef.current;
+      const context = canvas.getContext("2d");
+
+      // Set canvas dimensions to match video
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+
+      // Draw the video frame to canvas
+      context.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+      // Convert canvas to blob
+      canvas.toBlob(
+        (blob) => {
+          if (blob) {
+            // Create a File object from the blob
+            const file = new File([blob], "webcam-capture.jpg", {
+              type: "image/jpeg",
+            });
+            setSelectedImage(file);
+
+            // Create preview URL
+            const previewUrl = URL.createObjectURL(blob);
+            setImagePreview(previewUrl);
+
+            // Stop webcam after capture
+            stopWebcam();
+
+            toast.success("Photo captured successfully!");
+          }
+        },
+        "image/jpeg",
+        0.8
+      );
+    }
+  };
+
+  // Cleanup webcam stream on component unmount
+  useEffect(() => {
+    return () => {
+      if (webcamStream) {
+        webcamStream.getTracks().forEach((track) => track.stop());
+      }
+    };
+  }, [webcamStream]);
+
+  const closeReportModal = () => {
+    // Stop webcam if it's running
+    if (webcamStream) {
+      stopWebcam();
+    }
+
+    // Clean up image preview blob URL if it exists
+    if (imagePreview && imagePreview.startsWith("blob:")) {
+      URL.revokeObjectURL(imagePreview);
+    }
+
+    // Reset all modal state
+    setShowReportModal(false);
+    setSelectedImage(null);
+    setImagePreview(null);
+    setDescription("");
+    setClassification(null);
+  };
+
   const handleSubmitIssue = async () => {
     if (!selectedImage) {
       toast.error("Please select an image");
@@ -117,11 +221,9 @@ const UserDashboard = () => {
       await FirestoreService.createIssue(issueData);
 
       toast.success("Issue reported successfully!");
-      setShowReportModal(false);
-      setSelectedImage(null);
-      setImagePreview(null);
-      setDescription("");
-      setClassification(null);
+
+      // Clean up resources and close modal
+      closeReportModal();
 
       // Add a small delay to ensure Firestore write has propagated
       setTimeout(() => {
@@ -286,8 +388,6 @@ const UserDashboard = () => {
               </div>
             </div>
           </motion.div>
-
-         
         </div>
 
         {/* AI Model Information */}
@@ -395,7 +495,7 @@ const UserDashboard = () => {
                   Report New Issue
                 </h2>
                 <button
-                  onClick={() => setShowReportModal(false)}
+                  onClick={closeReportModal}
                   className="text-gray-400 hover:text-gray-600"
                 >
                   <X className="w-6 h-6" />
@@ -405,10 +505,38 @@ const UserDashboard = () => {
               {/* Image Upload */}
               <div className="mb-6">
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Upload Image
+                  Capture or Upload Image
                 </label>
                 <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center">
-                  {imagePreview ? (
+                  {showWebcam ? (
+                    <div className="space-y-4">
+                      <div className="relative">
+                        <video
+                          ref={webcamRef}
+                          autoPlay
+                          playsInline
+                          className="w-full h-64 object-cover rounded-lg bg-black"
+                        />
+                        <canvas ref={canvasRef} className="hidden" />
+                      </div>
+                      <div className="flex justify-center space-x-4">
+                        <button
+                          onClick={capturePhoto}
+                          className="btn-primary flex items-center space-x-2"
+                        >
+                          <Camera className="w-5 h-5" />
+                          <span>Capture Photo</span>
+                        </button>
+                        <button
+                          onClick={stopWebcam}
+                          className="btn-secondary flex items-center space-x-2"
+                        >
+                          <X className="w-5 h-5" />
+                          <span>Cancel</span>
+                        </button>
+                      </div>
+                    </div>
+                  ) : imagePreview ? (
                     <div className="relative">
                       <img
                         src={imagePreview}
@@ -419,6 +547,9 @@ const UserDashboard = () => {
                         onClick={() => {
                           setSelectedImage(null);
                           setImagePreview(null);
+                          if (imagePreview.startsWith("blob:")) {
+                            URL.revokeObjectURL(imagePreview);
+                          }
                         }}
                         className="absolute top-2 right-2 bg-red-500 text-white rounded-full p-1"
                       >
@@ -426,11 +557,27 @@ const UserDashboard = () => {
                       </button>
                     </div>
                   ) : (
-                    <div>
-                      <Camera className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-                      <p className="text-gray-600 mb-2">
-                        Click to upload or drag and drop
+                    <div className="space-y-4">
+                      <Camera className="w-12 h-12 text-gray-400 mx-auto" />
+                      <p className="text-gray-600">
+                        Capture a photo or upload an image file
                       </p>
+                      <div className="flex justify-center space-x-4">
+                        <button
+                          onClick={startWebcam}
+                          className="btn-primary flex items-center space-x-2"
+                        >
+                          <Video className="w-5 h-5" />
+                          <span>Use Camera</span>
+                        </button>
+                        <label
+                          htmlFor="image-upload"
+                          className="btn-secondary cursor-pointer flex items-center space-x-2"
+                        >
+                          <Upload className="w-5 h-5" />
+                          <span>Upload File</span>
+                        </label>
+                      </div>
                       <input
                         type="file"
                         accept="image/*"
@@ -438,13 +585,6 @@ const UserDashboard = () => {
                         className="hidden"
                         id="image-upload"
                       />
-                      <label
-                        htmlFor="image-upload"
-                        className="btn-primary cursor-pointer"
-                      >
-                        <Upload className="w-5 h-5 mr-2" />
-                        Choose Image
-                      </label>
                     </div>
                   )}
                 </div>
@@ -501,10 +641,7 @@ const UserDashboard = () => {
 
               {/* Submit Button */}
               <div className="flex justify-end space-x-4">
-                <button
-                  onClick={() => setShowReportModal(false)}
-                  className="btn-secondary"
-                >
+                <button onClick={closeReportModal} className="btn-secondary">
                   Cancel
                 </button>
                 <button
