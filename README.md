@@ -35,20 +35,20 @@ Resolve360 is a comprehensive maintenance management platform designed for large
 - **UI/UX**: Lucide React Icons, React Hot Toast
 - **Deployment**: Ready for Vercel, Netlify, or Firebase Hosting
 
-## Quick Start
+## 🚀 Quick Start
 
 ### Prerequisites
-- Node.js 16+ 
+- Node.js (v16 or higher)
 - npm or yarn
 - Firebase project
-- Cloudinary account
+- Cloudinary account (optional, for image uploads)
 
 ### Installation
 
 1. **Clone the repository**
    ```bash
-   git clone <repository-url>
-   cd resolve360
+   git clone https://github.com/Siddarth-01/Resolve360.git
+   cd Resolve360
    ```
 
 2. **Install dependencies**
@@ -57,61 +57,56 @@ Resolve360 is a comprehensive maintenance management platform designed for large
    ```
 
 3. **Configure Firebase**
-   - Create a new Firebase project
-   - Enable Authentication, Firestore, and Storage
-   - Update `src/firebase/config.js` with your Firebase credentials:
-   ```javascript
-   const firebaseConfig = {
-     apiKey: "YOUR_API_KEY",
-     authDomain: "your-project.firebaseapp.com",
-     projectId: "your-project-id",
-     storageBucket: "your-project.appspot.com",
-     messagingSenderId: "YOUR_SENDER_ID",
-     appId: "YOUR_APP_ID"
-   };
-   ```
+   - Go to [Firebase Console](https://console.firebase.google.com/)
+   - Create a new project or use existing one
+   - Enable Authentication (Google Sign-in)
+   - Enable Firestore Database
+   - Copy your Firebase config to `src/firebase/config.js`
 
-4. **Configure Cloudinary**
+4. **Set up Firestore Indexes** (Required)
+   - Go to your Firebase Console → Firestore Database → Indexes
+   - Create the following composite indexes:
+     - Collection: `issues`, Fields: `userId` (Ascending) + `createdAt` (Descending)
+     - Collection: `issues`, Fields: `status` (Ascending) + `createdAt` (Descending)
+     - Collection: `issues`, Fields: `assignedContractor` (Ascending) + `createdAt` (Descending)
+   - Or use the provided `firestore.indexes.json` file with Firebase CLI
+
+5. **Configure Cloudinary** (Optional)
    - Create a Cloudinary account
-   - Update `src/cloudinary/config.js` with your credentials:
-   ```javascript
-   export const cloudinaryConfig = {
-     cloudName: 'YOUR_CLOUD_NAME',
-     uploadPreset: 'YOUR_UPLOAD_PRESET',
-     apiKey: 'YOUR_API_KEY',
-     apiSecret: 'YOUR_API_SECRET'
-   };
-   ```
-
-5. **Set up Firestore Security Rules**
-   ```javascript
-   rules_version = '2';
-   service cloud.firestore {
-     match /databases/{database}/documents {
-       // Users can read/write their own data
-       match /users/{userId} {
-         allow read, write: if request.auth != null && request.auth.uid == userId;
-       }
-       
-       // Issues can be read by authenticated users, written by users
-       match /issues/{issueId} {
-         allow read: if request.auth != null;
-         allow write: if request.auth != null;
-       }
-       
-       // Admins collection for admin verification
-       match /admins/{adminEmail} {
-         allow read: if request.auth != null;
-         allow write: if request.auth != null;
-       }
-     }
-   }
-   ```
+   - Create an upload preset
+   - Update `src/cloudinary/config.js` with your credentials
 
 6. **Start the development server**
    ```bash
    npm start
    ```
+
+### Firebase Indexes Setup
+
+The application requires specific Firestore indexes for optimal performance. You can create them manually or use Firebase CLI:
+
+**Manual Setup:**
+1. Go to Firebase Console → Firestore Database → Indexes
+2. Click "Create Index"
+3. Create these indexes:
+   - Collection: `issues`, Fields: `userId` (Ascending) + `createdAt` (Descending)
+   - Collection: `issues`, Fields: `status` (Ascending) + `createdAt` (Descending)
+   - Collection: `issues`, Fields: `assignedContractor` (Ascending) + `createdAt` (Descending)
+
+**Using Firebase CLI:**
+```bash
+# Install Firebase CLI
+npm install -g firebase-tools
+
+# Login to Firebase
+firebase login
+
+# Initialize Firebase in your project
+firebase init firestore
+
+# Deploy indexes
+firebase deploy --only firestore:indexes
+```
 
 The application will be available at `http://localhost:3000`
 
