@@ -196,10 +196,10 @@ const UserDashboard = () => {
 
     setClassifying(true);
     try {
-      // AI classification
-      console.log("Starting AI classification...");
+      // AI classification using Teachable Machine model
+      console.log("Starting Teachable Machine classification...");
       const result = await AIService.classifyImage(selectedImage, description);
-      console.log("AI classification result:", result);
+      console.log("Teachable Machine classification result:", result);
       setClassification(result);
 
       // Create issue in database
@@ -240,7 +240,31 @@ const UserDashboard = () => {
       }, 1000);
     } catch (error) {
       console.error("Submit issue error:", error);
-      toast.error("Failed to submit issue: " + error.message);
+
+      // Provide specific error messages for different failure types
+      if (error.message.includes("TensorFlow.js is not available")) {
+        toast.error(
+          "AI classification unavailable: TensorFlow.js not loaded. Please refresh the page and try again."
+        );
+      } else if (
+        error.message.includes("Teachable Machine model is not available")
+      ) {
+        toast.error(
+          "AI classification unavailable: Unable to connect to the classification model. Please check your internet connection and try again."
+        );
+      } else if (error.message.includes("Image loading timeout")) {
+        toast.error(
+          "AI classification failed: Image processing timeout. Please try with a different image or check your connection."
+        );
+      } else if (
+        error.message.includes("Teachable Machine classification failed")
+      ) {
+        toast.error(
+          "AI classification failed: Unable to analyze the image. Please ensure the image is clear and try again."
+        );
+      } else {
+        toast.error("Failed to submit issue: " + error.message);
+      }
     } finally {
       setClassifying(false);
     }
@@ -604,11 +628,11 @@ const UserDashboard = () => {
                 />
               </div>
 
-              {/* AI Classification Result */}
+              {/* Teachable Machine Classification Result */}
               {classification && (
                 <div className="mb-6 p-4 bg-blue-50 rounded-lg">
                   <h3 className="font-semibold text-blue-900 mb-2">
-                    AI Classification Result
+                    Teachable Machine Classification Result
                   </h3>
                   <div className="grid grid-cols-2 gap-4 text-sm">
                     <div>

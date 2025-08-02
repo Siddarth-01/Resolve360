@@ -338,13 +338,19 @@ export class AIService {
         "Loading Teachable Machine model for image classification..."
       );
 
+      // Check if TensorFlow.js is available
+      if (!this.isTensorFlowAvailable()) {
+        throw new Error(
+          "TensorFlow.js is not available. Cannot perform image classification."
+        );
+      }
+
       // Test model availability first
       const modelAvailable = await this.testModelAvailability();
       if (!modelAvailable) {
-        console.warn(
-          "Teachable Machine model not available, using text analysis fallback"
+        throw new Error(
+          "Teachable Machine model is not available. Cannot perform image classification."
         );
-        return await this.analyzeDescription(description);
       }
 
       const modelURL = TEACHABLE_MACHINE_MODEL_URL + "model.json";
@@ -376,7 +382,9 @@ export class AIService {
                   modelError
                 );
                 if (attempts === maxAttempts) {
-                  throw modelError;
+                  throw new Error(
+                    `Failed to load Teachable Machine model after ${maxAttempts} attempts: ${modelError.message}`
+                  );
                 }
                 // Wait before retrying
                 await new Promise((resolve) => setTimeout(resolve, 1000));
@@ -437,37 +445,17 @@ export class AIService {
             tensor.dispose();
             model.dispose();
 
-            // Combine with text description analysis if confidence is low
-            const textClassification = await this.analyzeDescription(
-              description
+            // Use ONLY the Teachable Machine prediction (no text analysis fallback)
+            const finalCategory = selectedCategory;
+            const finalConfidence = confidence;
+
+            console.log(
+              `Teachable Machine prediction: ${finalCategory} (confidence: ${finalConfidence.toFixed(
+                3
+              )})`
             );
 
-            // Use ML prediction if confidence is reasonable, otherwise fallback to text analysis
-            let finalCategory, finalConfidence;
-            if (confidence > 0.2) {
-              // Lowered threshold for more ML usage
-              finalCategory = selectedCategory;
-              finalConfidence = confidence;
-              console.log("Using ML prediction");
-            } else {
-              console.log("Low confidence, using text analysis fallback");
-              finalCategory = textClassification.category;
-              finalConfidence = Math.max(
-                confidence,
-                textClassification.confidence
-              );
-            }
-
-            // If text analysis suggests a different category with high confidence, consider it
-            if (textClassification.confidence > 0.7 && confidence < 0.5) {
-              console.log(
-                "Text analysis has higher confidence, using text prediction"
-              );
-              finalCategory = textClassification.category;
-              finalConfidence = textClassification.confidence;
-            }
-
-            // Assign contractor
+            // Assign contractor based on predicted category
             const contractors = CONTRACTOR_ASSIGNMENTS[finalCategory] || [
               "general@resolve360.com",
             ];
@@ -484,8 +472,12 @@ export class AIService {
                 "General maintenance issue",
             });
           } catch (error) {
-            console.error("Model prediction error:", error);
-            // Fallback to description-based classification
+            console.error("Teachable Machine model prediction error:", error);
+            reject(
+              new Error(
+                `Teachable Machine classification failed: ${error.message}`
+              )
+            );
             const fallbackResult = await this.analyzeDescription(description);
             resolve(fallbackResult);
           }
@@ -493,24 +485,34 @@ export class AIService {
 
         img.onerror = (error) => {
           console.error("Failed to load image for classification:", error);
-          // Fallback to description-based classification
-          this.analyzeDescription(description).then(resolve).catch(reject);
+          reject(
+            new Error(
+              "Failed to load image for Teachable Machine classification"
+            )
+          );
         };
 
         // Set a timeout for image loading
         setTimeout(() => {
           if (!img.complete) {
-            console.warn("Image loading timeout, using text analysis fallback");
-            this.analyzeDescription(description).then(resolve).catch(reject);
+            console.error(
+              "Image loading timeout for Teachable Machine classification"
+            );
+            reject(
+              new Error(
+                "Image loading timeout for Teachable Machine classification"
+              )
+            );
           }
-        }, 10000); // 10 second timeout
+        }, 15000); // 15 second timeout
 
         img.src = imageUrl;
       });
     } catch (error) {
       console.error("Teachable Machine classification error:", error);
-      // Fallback to description-based classification
-      return await this.analyzeDescription(description);
+      throw new Error(
+        `Teachable Machine classification failed: ${error.message}`
+      );
     }
   }
 
